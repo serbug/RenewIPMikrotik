@@ -54,8 +54,8 @@ class RenewIp(object):
             shost = self.le.text()
             try:
                 socket.inet_aton(shost)
-                mt_username = "admin"
-                mt_password = "Windows0@"
+                mt_username = "username"
+                mt_password = "password"
                 timeout = 5
                 host = shost
                 ssh = paramiko.SSHClient()
