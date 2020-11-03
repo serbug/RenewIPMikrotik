@@ -43,7 +43,7 @@ class RenewIP(Ui_Dialog):
             try:
                 socket.inet_aton(shost)
                 mt_username = "admin"
-                mt_password = "Windows0@"
+                mt_password = "password"
                 timeout = 3
                 host = shost
                 ssh = paramiko.SSHClient()
