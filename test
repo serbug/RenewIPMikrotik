@@ -1,0 +1,412 @@
+import threading
+from base64 import b16encode
+from tkinter.font import Font
+from tkinter.ttk import Style
+
+from PIL import Image, ImageTk
+import logging
+import socket
+import sys
+
+import time
+from tkinter import END, SUNKEN, Text, Tk, Frame, Button, Entry, Label, Canvas, NW, ttk, messagebox
+
+from pip._vendor.cachecontrol import controller
+
+stop_event = threading.Event()
+
+
+class IODirector(object):
+    def __init__(self, text_area):
+        self.text_area = text_area
+
+
+class StdoutDirector(IODirector):
+    def write(self, msg):
+        self.text_area.see(END)
+        self.text_area.insert(END, msg)
+
+    def flush(self):
+        pass
+
+
+class Entry(Entry):
+    def __init__(self, master, placeholder):
+        super().__init__(master)
+
+        self.placeholder = placeholder
+
+        self._is_password = True if placeholder == "password" else False
+
+        self.bind("<FocusIn>", self.on_focus_in)
+        self.bind("<FocusOut>", self.on_focus_out)
+
+        self._state = 'placeholder'
+        self.insert(0, self.placeholder)
+
+    def on_focus_in(self, event):
+        if self._is_password:
+            self.configure(show='*')
+
+        if self._state == 'placeholder':
+            self._state = ''
+            self.delete('0', 'end')
+
+    def on_focus_out(self, event):
+        if not self.get():
+            if self._is_password:
+                self.configure(show='')
+
+            self._state = 'placeholder'
+            self.insert(0, self.placeholder)
+
+
+class Controller(object):
+    def __init__(self):
+        self.text_area = None
+        self.commandMT = None
+        self.password = None
+        self.username = None
+        self.fineRange = None
+        self.initRange = None
+        self.ipAddress = None
+        self.t = None
+
+        self.stop_threads = threading.Event()
+
+    def button_run(self):
+        while not self.stop_threads.set():
+            # logger = logging.getLogger('print_stuff')  # will inherit "root" logger settings
+            # logger.info('This will now show')  # changed
+            # print('This will show')
+            # print_some_other_stuff()
+            i = threading.active_count()
+            while True:
+                global mt_command
+
+                try:
+                    import paramiko
+
+
+                except ImportError:
+                    sys.tracebacklimit = 0
+                    with open("error.log", "ab") as e:
+                        e.write(bytes(time.strftime("%Y.%m.%d") + " " + time.strftime(
+                            "%H:%M:%S") + "\"Paramiko\" module missing! Please visit http://www.paramiko.org/installing.html "
+                                          "for more details." + "\r\n", 'utf8'))
+                    e.close()
+                    raise ImportError(
+                        "\rPlease install \"paramiko\" module! Visit http://www.paramiko.org/installing.html for more "
+                        "details.\r\n")
+
+                ip = self.ipAddress.get()
+                # if ip == '':
+                #     messagebox.showerror("Error", "Check IP Address its Empty!")
+                #     logging.info("Devi inserire l'ip")
+                #     break
+                try:
+                    socket.inet_aton(ip)
+                # print("Your ip is: " + ip)
+                except socket.error:
+                    messagebox.showerror("Error", "Check IP Address format!")
+                    logging.info("Error: Check your ip address.")
+                    break
+                split_ip = ip.split('.')
+                try:
+                    ini_range = int(self.initRange.get())
+                except ValueError:
+                    messagebox.showerror("Error", "Check Init Range it's not a Number!")
+                    break
+
+                try:
+                    end_range = int(self.fineRange.get())
+                except ValueError:
+                    messagebox.showerror("Error", "Check Fine Range it's not a Number!")
+                    logging.info("Non hai inserito fine del range")
+                    break
+
+                file = open("hosts", "w")
+                for x in range(int(ini_range), int(end_range)):
+                    file.write(split_ip[0] + '.' + split_ip[1] + '.' + split_ip[2] + '.' + str(x) + '\n')
+                file.close()
+
+                nlines = 0
+                f = open("hosts", "r")
+
+                mt_username = self.username.get()
+                if not mt_username:
+                    messagebox.showerror("Error", "Username can only contain a minimum a 6 characters!")
+                    logging.info("Username deve avere almeno 6 carateri")
+                    break
+                mt_password = self.password.get()
+                if len(mt_password) < 8 or mt_password == '':
+                    messagebox.showerror("Error", "Password can only contain a minimum a 8 characters!")
+                    logging.info("Paasword deve avere almeno 8 carateri")
+                    break
+                timeout = 3
+
+                for line in f:
+
+                    if nlines > 0:
+                        logging.info("\r\nWaiting 2s before logging on to the next device...\n")
+                        time.sleep(2)
+
+                    nlines += 1
+                    conn_date = time.strftime("%Y.%m.%d")
+                    conn_time = time.strftime("%H:%M:%S")
+                    host = line.rstrip("\n")
+                    ssh = paramiko.SSHClient()
+
+                    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+                    logging.info("\r\nConnecting to " + str(nlines) + ". host: " + host + "\r\n")
+
+                    try:
+                        ssh.connect(host, username=mt_username, password=mt_password, timeout=timeout)
+
+                    except socket.timeout as e:
+                        logging.info("\r\nConnection timeout. Log entry created.")
+                        with open("error.log", "ab") as e:
+                            e.write(
+                                bytes(
+                                    conn_date + " " + conn_time + " " + mt_username + "@" + host + " Timeout connecting to the device." + "\r\n",
+                                    'utf8'))
+                        e.close()
+                        continue
+
+                    except paramiko.AuthenticationException:
+                        logging.info("\r\nWrong credentials. Log entry created.")
+                        with open("error.log", "ab") as e:
+                            e.write(bytes(
+                                conn_date + " " + conn_time + " " + mt_username + "@" + host + " Wrong credentials." + "\r\n",
+                                'utf8'))
+                        e.close()
+                        continue
+
+                    except:
+                        logging.info("\r\nError connecting to the device. Log entry created.")
+                        with open("error.log", "ab") as e:
+                            e.write(
+                                bytes(
+                                    conn_date + " " + conn_time + " " + mt_username + "@" + host + " Unknown error while connecting to the device." + "\r\n",
+                                    'utf8'))
+                        e.close()
+                        continue
+
+                    logging.info(
+                        "\r\nSuccsessfully connected to the host. Executing commands from the external file:\r\n")
+                    command = self.commandMT.get()
+                    if command == '':
+                        messagebox.showerror("Error", "Put some command for Mikrotik and try again!")
+                        logging.info("Campo del comando per il Mikrotik e vuoto!")
+                        break
+                    k = open("commands", "w")
+                    k.write(command)
+                    k.close()
+
+                    k = open("commands", "r")
+                    for line in k:
+                        mt_command = line.rstrip("\n")
+                        time.sleep(.3)
+                        stdin, stdout, stderr = ssh.exec_command(mt_command)
+                        print(mt_command)
+
+                    logging.info("\nExternal commands are executed successfully.\n")
+                    k.close()
+                    ssh.get_transport().close()
+                    ssh.close()
+                    try:
+                        with open("succes.log", "ab") as e:
+                            e.write(
+                                bytes(
+                                    conn_date + " " + conn_time + " " + mt_username + "@ " + host + " External commands are "
+                                                                                                    "executed successfully." +
+                                    "\n" + mt_command + "\r\n",
+                                    'utf8'))
+                            e.close()
+                    except:
+                        logging.info('Non è stato possibile scrivere sul file success.log')
+
+                if nlines == 0:
+                    logging.info("\nList of hosts is empty.\n")
+                else:
+                    i -= 1
+                    logging.info("\nEnd of the program.\n")
+                    time.sleep(1)
+                    messagebox.showinfo("Info", "Work " + str(i) + " complete")
+                f.close()
+                quit()
+
+    def do_run(self):
+        self.stop_threads.clear()
+        self.t = threading.Thread(target=self.button_run)
+
+        sys.stdout = StdoutDirector(self.text_area)
+        # configure the nameless "root" logger to also write           # added
+        # to the redirected sys.stdout                                 # added
+        logger = logging.getLogger()  # added
+        console = logging.StreamHandler(stream=sys.stdout)  # added
+        logger.addHandler(console)  # added
+        # t.daemon = True
+        self.t.start()
+
+    def stop(self):
+
+        self.stop_threads.set()
+        self.t.join()
+        print("Hello")
+        self.t = None
+        # self.thread2 = None
+
+
+class App(Frame):
+
+    def __init__(self, master):
+        self.master = master
+        Frame.__init__(self, master, relief=SUNKEN, bd=2)
+
+        self.start()
+
+    def start(self):
+        self.master.title("My App")
+
+        self.master.geometry('1031x621')
+        # large_font = ('Times New Roman', 13, weight="bold")
+        large_font = Font(family="Times New Roman", size=14, weight="bold")
+        mediu_font = Font(family="Helvetica", size=11, weight="normal")
+        self.focus_force()
+        control = Controller()
+        # entry = ttk.Entry(root_window, style="EntryStyle.TEntry", textvariable=entry_v)
+        # entry.pack(padx=10, pady=10)
+        self.ipAddress = Entry(self.master, "Ip Address")
+        # var=StringVar()
+        # var.set('Hello')
+        # self.lb=Label(self.master, textvariable=var)
+
+        # self.ipAddress.config(bg='#f0f0f0')
+        # self.ipAddress.insert(0, 'Ip Address')
+        self.ipAddress.pack()
+        self.initRange = Entry(self.master, "Inizio Range")
+        # self.focus_force()
+        self.initRange.pack()
+        # self.initRange.insert(0, 'Inizio Range')
+        self.fineRange = Entry(self.master, "Fine Range")
+        self.fineRange.pack()
+        # self.fineRange.insert(0, 'Fine Range')
+        self.username = Entry(self.master, "Username")
+        self.username.pack()
+        # self.username.insert(0, 'Username MT')
+        self.password = Entry(self.master, "Password")
+        self.password.pack()
+        # self.password.insert(0, 'Password MT')
+        self.commandMT = Entry(self.master, "Comando/i per Mikrotik")
+        self.commandMT.pack()
+
+        # self.commandMT.insert(0, 'Command MT')
+
+        self.ipAddress.place(x=120, y=200, height=35)
+        self.ipAddress['bg'] = self.ipAddress.master['bg']
+        self.ipAddress.config(justify='center', width=20, font=large_font, fg='white')  # ,bg='grey'
+
+        self.initRange.place(x=120, y=250, height=35)
+        self.initRange['bg'] = self.initRange.master['bg']
+        self.initRange.config(justify='center', width=11, font=large_font, fg='white')
+
+        self.fineRange.place(x=120, y=300, height=35)
+        self.fineRange['bg'] = self.fineRange.master['bg']
+        self.fineRange.config(justify='center', width=11, font=large_font, fg='white')
+
+        self.username.place(x=120, y=350, height=35)
+        self.username['bg'] = self.username.master['bg']
+        self.username.config(justify='center', width=20, font=large_font, fg='white')
+
+        self.password.place(x=120, y=400, height=35)
+        self.password['bg'] = self.password.master['bg']
+        self.password.config(justify='center', width=20, font=large_font, fg='white')
+
+        self.commandMT.place(x=440, y=110, height=240, )
+        self.commandMT['bg'] = self.commandMT.master['bg']
+        self.commandMT.config(justify='center', width=70, font=mediu_font, fg='white')
+
+        self.image = ImageTk.PhotoImage(Image.open("../script/resource/images/background.jpg"))
+        # self.back=ImageTk.PhotoImage(Image.open("../script/resource/images/background.jpg"))
+        self.logo = ImageTk.PhotoImage(Image.open("../script/resource/images/logo-bianco-azzurro.png"))
+
+        self.lb = Label(self.master, image=self.logo)
+        self.lb['bg'] = self.lb.master['bg']
+
+        self.lb.place(x=100, y=50)
+        # self.lb.config(height=100, width=50)
+        control = Controller()
+        self.submit = Button(self.master, image=self.image, text='START', compound="center", command=control.do_run,
+                             fg="white")
+        # self.submit = Button(self.master, text='Run',image=self.image,compound="left", command=self.do_run, fg="red")
+        self.submit.pack()
+        self.submit.place(x=120, y=480)
+        self.submit.config(height=40, width=90, font=large_font)
+
+        self.btnstop = Button(self.master, image=self.image, text='STOP', compound="center", command=control.stop,
+                              fg="white")
+        # self.submit = Button(self.master, text='Run',image=self.image,compound="left", command=self.do_run, fg="red")
+        self.btnstop.pack()
+        self.btnstop.place(x=230, y=480)
+        self.btnstop.config(height=40, width=90, font=large_font)
+
+        self.text_area = Text(self.master, height=15, width=70, bg='light cyan', fg='white')
+        self.text_area['bg'] = self.text_area.master['bg']
+        self.text_area.pack()
+        self.text_area.delete(1.0, "end")
+        self.text_area.insert(1.0, 'logger')
+
+        # top_left = Frame(self.master, bg='black', width=200, height=200)
+        # top_left.grid(row=0, column=0, padx=0, pady=0)
+        self.text_area.place(x=440, y=365)
+
+    def rgb_color(rgb):
+        return (b'#' + b16encode(bytes(rgb)))
+
+    # def clear_entry(event, entry):
+    #     event.ipAddress.delete(0, END)
+
+
+# def print_stuff():
+#     logger = logging.getLogger('print_stuff')  # will inherit "root" logger settings
+#     logger.info('This will now show')  # changed
+#     print('This will show')
+#     print_some_other_stuff()
+
+
+# def print_some_other_stuff():
+#     logger = logging.getLogger('print_some_other_stuff')  # will inherit "root" logger settings
+#     logger.info('This will also now show')  # changed
+#     print('This will also show')
+
+
+def main():
+    logging.basicConfig(level=logging.INFO)  # enable logging           # added
+    root = Tk()
+
+    root.style = Style()
+    # ('clam', 'alt', 'default', 'classic')
+
+    ttk.Style().theme_use('clam')
+    root.config(bg="#5F6E80")
+    # root.attributes("-transparentcolor", 'grey')
+    # root.attributes("-alpha", 0.9)
+    canvas = Canvas(root, width=1031, height=621)
+    image = ImageTk.PhotoImage(
+        Image.open("resource/images/background.jpg"))
+    canvas.create_image(0, 0, anchor=NW, image=image)
+    canvas.pack()
+    root.iconbitmap(r'resource/images/iconapp.ico')
+
+    app = App(root)
+
+    # root = ThemedTk(theme="black")
+    blank_space = " "
+    root.wm_title(150 * blank_space + 'Mikrotik App')
+    root.mainloop()
+
+
+if __name__ == '__main__':
+    main()
